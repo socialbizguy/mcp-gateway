@@ -728,35 +728,17 @@ async def lifespan(server: FastMCP) -> AsyncIterator[GetewayContext]:
                     f"Unknown plugin: {plugin_name} - could not determine plugin type"
                 )
 
-    # Handle backward compatibility with separate parameters
-    if cli_args and cli_args.enable_guardrails:
-        if "guardrail" not in enabled_plugin_types:
-            enabled_plugin_types.append("guardrail")
-
-        if "guardrail" not in enabled_plugins:
-            enabled_plugins["guardrail"] = []
-
-        for plugin in cli_args.enable_guardrails:
-            if plugin not in enabled_plugins["guardrail"]:
-                enabled_plugins["guardrail"].append(plugin)
-
-        logger.info(f"Guardrail plugins ENABLED: {enabled_plugins['guardrail']}")
-    elif "guardrail" not in enabled_plugin_types:
+    # Log plugin status
+    if "guardrail" in enabled_plugin_types:
+        logger.info(
+            f"Guardrail plugins ENABLED: {enabled_plugins.get('guardrail', [])}"
+        )
+    else:
         logger.info("Guardrail plugins DISABLED.")
 
-    if cli_args and cli_args.enable_tracing:
-        if "tracing" not in enabled_plugin_types:
-            enabled_plugin_types.append("tracing")
-
-        if "tracing" not in enabled_plugins:
-            enabled_plugins["tracing"] = []
-
-        for plugin in cli_args.enable_tracing:
-            if plugin not in enabled_plugins["tracing"]:
-                enabled_plugins["tracing"].append(plugin)
-
-        logger.info(f"Tracing plugins ENABLED: {enabled_plugins['tracing']}")
-    elif "tracing" not in enabled_plugin_types:
+    if "tracing" in enabled_plugin_types:
+        logger.info(f"Tracing plugins ENABLED: {enabled_plugins.get('tracing', [])}")
+    else:
         logger.info("Tracing plugins DISABLED.")
 
     # Initialize plugin manager with configuration
@@ -966,7 +948,21 @@ def parse_args(args=None):
     )
     if args is None:
         args = sys.argv[1:]
-    return parser.parse_args(args)
+
+    parsed_args = parser.parse_args(args)
+
+    # Simplify backward compatibility by adding enable-guardrails and enable-tracing values to plugin list
+    for guardrail in parsed_args.enable_guardrails:
+        if guardrail and guardrail not in parsed_args.plugin:
+            parsed_args.plugin.append(guardrail)
+            logger.info(f"Adding backward compatibility guardrail plugin: {guardrail}")
+
+    for tracing in parsed_args.enable_tracing:
+        if tracing and tracing not in parsed_args.plugin:
+            parsed_args.plugin.append(tracing)
+            logger.info(f"Adding backward compatibility tracing plugin: {tracing}")
+
+    return parsed_args
 
 
 def main():
