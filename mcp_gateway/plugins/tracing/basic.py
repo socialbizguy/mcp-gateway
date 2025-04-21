@@ -2,14 +2,15 @@ import logging
 from typing import Any, Dict, Optional
 
 from mcp_gateway.plugins.base import TracingPlugin, PluginContext
+from mcp_gateway.plugins.manager import register_plugin
 
 logger = logging.getLogger(__name__)
 
 
+@register_plugin
 class BasicTracingPlugin(TracingPlugin):
     """A basic tracing plugin that logs request and response data."""
 
-    plugin_type = "tracing"
     plugin_name = "basic"
 
     def __init__(self):

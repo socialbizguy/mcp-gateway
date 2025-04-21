@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from mcp import types
 from mcp_gateway.plugins.base import GuardrailPlugin, PluginContext
+from mcp_gateway.plugins.manager import register_plugin
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +20,12 @@ DEFAULT_PII_ENTITIES = [
 ]
 
 
+@register_plugin
 class PresidioGuardrailPlugin(GuardrailPlugin):
     """
     A guardrail that anonymizes PII using Presidio.
     """
 
-    plugin_type = "guardrail"
     plugin_name = "presidio"
 
     def __init__(self):

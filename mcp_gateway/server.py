@@ -7,7 +7,19 @@ import argparse
 import sys
 from contextlib import asynccontextmanager, AsyncExitStack
 from dataclasses import dataclass, field
-from typing import Any, Dict, AsyncIterator, List, Optional, Tuple
+from typing import (
+    Any,
+    Dict,
+    AsyncIterator,
+    List,
+    Optional,
+    Tuple,
+    get_type_hints,
+    get_args,
+    get_origin,
+)
+import inspect
+import functools
 
 from mcp.server.fastmcp import FastMCP, Context
 from mcp import ClientSession, StdioServerParameters, types
@@ -123,14 +135,14 @@ class Server:
 
             # Process Tools
             if isinstance(tools_res, Exception):
-                logger.error(f"Failed to list tools for {self.name}: {tools_res}")
+                logger.debug(f"Failed to list tools for {self.name}: {tools_res}")
                 self._tools = []
             else:
                 self._tools = self._extract_list(tools_res, "tools", types.Tool)
 
             # Process Resources
             if isinstance(resources_res, Exception):
-                logger.error(
+                logger.debug(
                     f"Failed to list resources for {self.name}: {resources_res}"
                 )
                 self._resources = []
@@ -141,7 +153,7 @@ class Server:
 
             # Process Prompts
             if isinstance(prompts_res, Exception):
-                logger.error(f"Failed to list prompts for {self.name}: {prompts_res}")
+                logger.debug(f"Failed to list prompts for {self.name}: {prompts_res}")
                 self._prompts = []
             else:
                 self._prompts = self._extract_list(prompts_res, "prompts", types.Prompt)
@@ -367,8 +379,8 @@ class GetewayContext:
     plugin_manager: Optional[PluginManager] = None
     # Store dynamic capability handlers/metadata on the gateway context
     # Using FastMCP internal attributes is fragile, store here instead.
-    gateway_tools: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-    gateway_prompts: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    # gateway_tools: Dict[str, Dict[str, Any]] = field(default_factory=dict) # For future use
+    # gateway_prompts: Dict[str, Dict[str, Any]] = field(default_factory=dict) # For future use
     # gateway_resources: Dict[str, Dict[str, Any]] = field(default_factory=dict) # For future use
 
 
@@ -377,129 +389,248 @@ class GetewayContext:
 
 async def register_dynamic_tool(
     gateway_mcp: FastMCP,
-    gateway_context: GetewayContext,
     server_name: str,
     tool: types.Tool,
     proxied_server: Server,
     plugin_manager: PluginManager,
 ):
-    """Registers a dynamic tool handler on the gateway."""
+    """Registers a dynamic tool handler directly with the FastMCP instance."""
     dynamic_tool_name = f"{server_name}_{tool.name}"
     logger.debug(f"Attempting to register dynamic tool: {dynamic_tool_name}")
 
-    # Define the handler function within this scope to capture variables
-    async def dynamic_tool_impl(ctx: Context, **kwargs: Any) -> types.CallToolResult:
-        logger.info(
-            f"Executing dynamic tool '{dynamic_tool_name}' (proxied from {server_name}/{tool.name})"
-        )
-        # Retrieve the specific proxied_server and plugin_manager captured at registration time.
-        # Using gateway_context.proxied_servers.get(server_name) is also possible but captured ones are direct.
-        try:
-            # Delegate to the Server.call_tool which handles sanitization via plugin_manager
-            result = await proxied_server.call_tool(
-                plugin_manager=plugin_manager,
-                name=tool.name,
-                arguments=kwargs,
-                mcp_context=ctx,  # Pass gateway context
-            )
-            return result
-        except SanitizationError as se:
-            # Log the error and return a structured error response
-            logger.error(
-                f"Sanitization policy violation for dynamic tool '{dynamic_tool_name}': {se}"
-            )
-            return types.CallToolResult(
-                outputs=[
-                    {"type": "error", "message": f"Gateway policy violation: {se}"}
-                ]
-            )
-        except Exception as e:
-            logger.error(
-                f"Error executing dynamic tool '{dynamic_tool_name}': {e}",
-                exc_info=True,
-            )
-            return types.CallToolResult(
-                outputs=[
-                    {
-                        "type": "error",
-                        "message": f"Error executing dynamic tool '{dynamic_tool_name}': {e}",
-                    }
-                ]
-            )
+    # Extract parameter types from the tool's inputSchema
+    param_signatures = []
 
-    # Store the handler and metadata in the gateway context
-    # We assume FastMCP's standard handlers will find these later via list_tools etc.
-    # This avoids direct manipulation of FastMCP internals.
-    gateway_context.gateway_tools[dynamic_tool_name] = {
-        "handler": dynamic_tool_impl,
-        "schema": types.Tool(
-            name=dynamic_tool_name,
-            description=tool.description or f"Proxied tool from {server_name}",
-            arguments=tool.arguments,
-            input_schema=tool.input_schema,
-            output_schema=tool.output_schema,
-        ),
-    }
-    logger.info(f"Stored registration info for dynamic tool '{dynamic_tool_name}'")
+    # Tool has inputSchema (JSON Schema) instead of arguments
+    if hasattr(tool, "inputSchema") and tool.inputSchema:
+        # Try to extract properties from JSON Schema
+        properties = tool.inputSchema.get("properties", {})
+        for param_name, param_schema in properties.items():
+            param_type = Any  # Default type
+            param_description = param_schema.get("description", "")
+
+            # Map JSON Schema types to Python types
+            json_type = param_schema.get("type")
+            if json_type:
+                type_mapping = {
+                    "string": str,
+                    "integer": int,
+                    "boolean": bool,
+                    "number": float,
+                    "object": Dict[str, Any],
+                    "array": List[Any],
+                }
+                param_type = type_mapping.get(json_type, Any)
+
+            param_signatures.append((param_name, param_type, param_description))
+
+    # Create a properly typed dynamic function based on the original tool's signature
+    def create_typed_handler(param_signatures):
+        # Create parameters for the function signature
+        parameters = [
+            inspect.Parameter(
+                name="ctx",
+                annotation=Context,
+                kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+        ]
+
+        annotations = {"ctx": Context, "return": types.CallToolResult}
+
+        # Add parameters from the original tool
+        for name, type_ann, description in param_signatures:
+            parameters.append(
+                inspect.Parameter(
+                    name=name,
+                    annotation=type_ann,
+                    kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                )
+            )
+            annotations[name] = type_ann
+
+        # Create the proper signature
+        sig = inspect.Signature(parameters=parameters)
+
+        # Define the handler with the proper signature
+        async def dynamic_tool_impl(*args, **kwargs):
+            ctx = kwargs.get("ctx", args[0] if args else None)
+            # Remove ctx from kwargs before passing to the proxied server
+            tool_kwargs = {k: v for k, v in kwargs.items() if k != "ctx"}
+
+            logger.info(
+                f"Executing dynamic tool '{dynamic_tool_name}' (proxied from {server_name}/{tool.name})"
+            )
+            try:
+                result = await proxied_server.call_tool(
+                    plugin_manager=plugin_manager,
+                    name=tool.name,
+                    arguments=tool_kwargs,
+                    mcp_context=ctx,  # Pass gateway context
+                )
+                return result
+            except SanitizationError as se:
+                logger.error(
+                    f"Sanitization policy violation for dynamic tool '{dynamic_tool_name}': {se}"
+                )
+                return types.CallToolResult(
+                    outputs=[
+                        {"type": "error", "message": f"Gateway policy violation: {se}"}
+                    ]
+                )
+            except Exception as e:
+                logger.error(
+                    f"Error executing dynamic tool '{dynamic_tool_name}': {e}",
+                    exc_info=True,
+                )
+                return types.CallToolResult(
+                    outputs=[
+                        {
+                            "type": "error",
+                            "message": f"Error executing dynamic tool '{dynamic_tool_name}': {e}",
+                        }
+                    ]
+                )
+
+        # Apply the signature to the function
+        dynamic_tool_impl.__signature__ = sig
+        dynamic_tool_impl.__annotations__ = annotations
+
+        return dynamic_tool_impl
+
+    # Create the handler with proper signature
+    dynamic_tool_impl = create_typed_handler(param_signatures)
+
+    # Set metadata properties for FastMCP
+    dynamic_tool_impl.__name__ = dynamic_tool_name
+    dynamic_tool_impl.__doc__ = tool.description or f"Proxied tool from {server_name}"
+
+    # Register with FastMCP
+    try:
+        # Use the full schema to register
+        tool_decorator = gateway_mcp.tool(
+            name=dynamic_tool_name, description=tool.description
+        )
+        tool_decorator(dynamic_tool_impl)
+        logger.info(f"Registered dynamic tool '{dynamic_tool_name}' with FastMCP")
+    except Exception as e:
+        logger.error(
+            f"Failed to register dynamic tool {dynamic_tool_name} with FastMCP: {e}",
+            exc_info=True,
+        )
 
 
 async def register_dynamic_prompt(
     gateway_mcp: FastMCP,
-    gateway_context: GetewayContext,
     server_name: str,
     prompt: types.Prompt,
     proxied_server: Server,
     plugin_manager: PluginManager,
 ):
-    """Registers a dynamic prompt handler on the gateway."""
+    """Registers a dynamic prompt handler directly with the FastMCP instance."""
     dynamic_prompt_name = f"{server_name}_{prompt.name}"
     logger.debug(f"Attempting to register dynamic prompt: {dynamic_prompt_name}")
 
-    async def dynamic_prompt_impl(ctx: Context, **kwargs: Any) -> types.GetPromptResult:
-        logger.info(
-            f"Executing dynamic prompt '{dynamic_prompt_name}' (proxied from {server_name}/{prompt.name})"
-        )
-        try:
-            # Delegate to the Server.get_prompt which handles response sanitization
-            result = await proxied_server.get_prompt(
-                plugin_manager=plugin_manager,
-                name=prompt.name,
-                arguments=kwargs,
-                mcp_context=ctx,  # Pass gateway context
-            )
-            return result  # Server.get_prompt already wraps sanitization errors
-        except Exception as e:
-            # Catch unexpected errors during the call itself
-            logger.error(
-                f"Error executing dynamic prompt '{dynamic_prompt_name}': {e}",
-                exc_info=True,
-            )
-            return types.GetPromptResult(
-                messages=[
-                    types.PromptMessage(
-                        role="assistant",
-                        content=types.TextContent(
-                            type="text",
-                            text=f"Error executing prompt '{dynamic_prompt_name}': {e}",
-                        ),
-                    )
-                ]
-            )
+    # Extract parameter types from the prompt's arguments
+    param_signatures = []
+    if hasattr(prompt, "arguments") and prompt.arguments:
+        for arg in prompt.arguments:
+            param_type = str  # Default type for prompt arguments is string
+            description = getattr(arg, "description", None)
 
-    # Store handler and metadata in gateway context
-    gateway_context.gateway_prompts[dynamic_prompt_name] = {
-        "handler": dynamic_prompt_impl,
-        "schema": types.Prompt(
-            name=dynamic_prompt_name,
-            description=prompt.description or f"Proxied prompt from {server_name}",
-            arguments=prompt.arguments,
-        ),
-    }
-    logger.info(f"Stored registration info for dynamic prompt '{dynamic_prompt_name}'")
+            param_signatures.append((arg.name, param_type, description))
+
+    # Create a properly typed dynamic function based on the original prompt's signature
+    def create_typed_handler(param_signatures):
+        # Create parameters for the function signature
+        parameters = [
+            inspect.Parameter(
+                name="ctx",
+                annotation=Context,
+                kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+        ]
+
+        annotations = {"ctx": Context, "return": types.GetPromptResult}
+
+        # Add parameters from the original prompt
+        for name, type_ann, description in param_signatures:
+            parameters.append(
+                inspect.Parameter(
+                    name=name,
+                    annotation=type_ann,
+                    kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                )
+            )
+            annotations[name] = type_ann
+
+        # Create the proper signature
+        sig = inspect.Signature(parameters=parameters)
+
+        # Define the handler with the proper signature
+        async def dynamic_prompt_impl(*args, **kwargs):
+            ctx = kwargs.get("ctx", args[0] if args else None)
+            # Remove ctx from kwargs before passing to the proxied server
+            prompt_kwargs = {k: v for k, v in kwargs.items() if k != "ctx"}
+
+            logger.info(
+                f"Executing dynamic prompt '{dynamic_prompt_name}' (proxied from {server_name}/{prompt.name})"
+            )
+            try:
+                result = await proxied_server.get_prompt(
+                    plugin_manager=plugin_manager,
+                    name=prompt.name,
+                    arguments=prompt_kwargs,
+                    mcp_context=ctx,  # Pass gateway context
+                )
+                return result  # Server.get_prompt already wraps sanitization errors
+            except Exception as e:
+                logger.error(
+                    f"Error executing dynamic prompt '{dynamic_prompt_name}': {e}",
+                    exc_info=True,
+                )
+                return types.GetPromptResult(
+                    messages=[
+                        types.PromptMessage(
+                            role="assistant",
+                            content=types.TextContent(
+                                type="text",
+                                text=f"Error executing prompt '{dynamic_prompt_name}': {e}",
+                            ),
+                        )
+                    ]
+                )
+
+        # Apply the signature to the function
+        dynamic_prompt_impl.__signature__ = sig
+        dynamic_prompt_impl.__annotations__ = annotations
+
+        return dynamic_prompt_impl
+
+    # Create the handler with proper signature
+    dynamic_prompt_impl = create_typed_handler(param_signatures)
+
+    # Set metadata properties for FastMCP
+    dynamic_prompt_impl.__name__ = dynamic_prompt_name
+    dynamic_prompt_impl.__doc__ = (
+        prompt.description or f"Proxied prompt from {server_name}"
+    )
+
+    # Register with FastMCP
+    try:
+        prompt_decorator = gateway_mcp.prompt(
+            name=dynamic_prompt_name, description=prompt.description
+        )
+        prompt_decorator(dynamic_prompt_impl)
+        logger.info(f"Registered dynamic prompt '{dynamic_prompt_name}' with FastMCP")
+    except Exception as e:
+        logger.error(
+            f"Failed to register dynamic prompt {dynamic_prompt_name} with FastMCP: {e}",
+            exc_info=True,
+        )
 
 
 async def register_proxied_capabilities(gateway_mcp: FastMCP, context: GetewayContext):
-    """Fetches capabilities from proxied servers and registers them dynamically."""
+    """Fetches capabilities from proxied servers and registers them dynamically with the gateway_mcp."""
     logger.info("Dynamically registering capabilities from proxied servers...")
     plugin_manager = context.plugin_manager
     if not plugin_manager:
@@ -509,32 +640,35 @@ async def register_proxied_capabilities(gateway_mcp: FastMCP, context: GetewayCo
         return
 
     registration_tasks = []
+    registered_tool_count = 0
+    registered_prompt_count = 0
+
     for server_name, proxied_server in context.proxied_servers.items():
         if proxied_server.session:  # Only register for active sessions
             # Register tools for this server
             for tool in proxied_server._tools:  # Use cached list
                 registration_tasks.append(
                     register_dynamic_tool(
-                        gateway_mcp,
-                        context,
+                        gateway_mcp,  # Pass FastMCP instance
                         server_name,
                         tool,
                         proxied_server,
                         plugin_manager,
                     )
                 )
+                registered_tool_count += 1
             # Register prompts for this server
             for prompt in proxied_server._prompts:  # Use cached list
                 registration_tasks.append(
                     register_dynamic_prompt(
-                        gateway_mcp,
-                        context,
+                        gateway_mcp,  # Pass FastMCP instance
                         server_name,
                         prompt,
                         proxied_server,
                         plugin_manager,
                     )
                 )
+                registered_prompt_count += 1
             # Note: Dynamic resource registration is deferred
             if proxied_server._resources:
                 logger.warning(
@@ -548,7 +682,7 @@ async def register_proxied_capabilities(gateway_mcp: FastMCP, context: GetewayCo
     if registration_tasks:
         await asyncio.gather(*registration_tasks)
         logger.info(
-            f"Dynamic registration process complete. Registered {len(context.gateway_tools)} tools and {len(context.gateway_prompts)} prompts."
+            f"Dynamic registration process complete. Attempted to register {registered_tool_count} tools and {registered_prompt_count} prompts with FastMCP."
         )
     else:
         logger.info("No active proxied servers found or no capabilities to register.")
@@ -559,12 +693,11 @@ async def register_proxied_capabilities(gateway_mcp: FastMCP, context: GetewayCo
 
 @asynccontextmanager
 async def lifespan(server: FastMCP) -> AsyncIterator[GetewayContext]:
-    """Manages the lifecycle of proxied MCP servers, plugins, and dynamic registration."""
+    """Manages the lifecycle of proxied MCP servers and dynamic registration."""
     global cli_args
     logger.info("MCP gateway lifespan starting...")
 
-    # --- Plugin Manager Setup ---
-    # (Plugin setup code remains the same as before)
+    # Prepare plugin configuration from CLI arguments
     enabled_plugin_types = []
     enabled_plugins = {}
 
@@ -580,44 +713,17 @@ async def lifespan(server: FastMCP) -> AsyncIterator[GetewayContext]:
         enabled_plugins["tracing"] = cli_args.enable_tracing
         logger.info(f"Tracing plugins ENABLED: {cli_args.enable_tracing}")
     else:
-        logger.info("Tracing plugins DISABLED by command line flag.")
+        logger.info("Tracing plugins DISABLED.")
 
-    plugin_dir = (
-        cli_args.plugin_dir
-        if cli_args and cli_args.plugin_dir
-        else os.path.join(os.path.dirname(__file__), "plugins")
+    # Initialize plugin manager with configuration
+    plugin_manager = PluginManager(
+        enabled_types=enabled_plugin_types, enabled_plugins=enabled_plugins
     )
-    logger.info(f"Using plugin directory: {plugin_dir}")
-
-    if not os.path.isdir(plugin_dir):
-        logger.warning(
-            f"Plugin directory '{plugin_dir}' not found. No plugins will be loaded."
-        )
-        plugin_dirs_to_scan = []
-    else:
-        plugin_dirs_to_scan = []
-        try:
-            for d in os.listdir(plugin_dir):
-                dir_path = os.path.join(plugin_dir, d)
-                if os.path.isdir(dir_path) and not d.startswith("_"):
-                    plugin_dirs_to_scan.append(dir_path)
-                    logger.debug(f"Added plugin directory to scan: {dir_path}")
-        except Exception as e:
-            logger.error(f"Error scanning plugin directories: {e}", exc_info=True)
-
-    plugin_manager = PluginManager(plugin_dirs=plugin_dirs_to_scan)
-    plugin_configs = {}  # Load from config if needed
-    plugin_manager.discover_and_load(
-        enabled_types=enabled_plugin_types,
-        plugin_configs=plugin_configs,
-        enabled_plugins=enabled_plugins,
-    )
-    # --- End Plugin Manager Setup ---
 
     # Load proxied server configs
     proxied_server_configs = load_config(cli_args.mcp_json_path)
 
-    # Initialize context WITHOUT starting servers yet
+    # Initialize context
     context = GetewayContext(plugin_manager=plugin_manager)
 
     # Create Server instances but don't start them yet
@@ -642,9 +748,7 @@ async def lifespan(server: FastMCP) -> AsyncIterator[GetewayContext]:
                 if isinstance(result, Exception):
                     logger.error(
                         f"Failed to start server '{server_name}' during gather: {result}",
-                        exc_info=result
-                        if logger.isEnabledFor(logging.DEBUG)
-                        else None,  # Avoid verbose traceback unless DEBUG
+                        exc_info=result if logger.isEnabledFor(logging.DEBUG) else None,
                     )
                     failed_servers.append(server_name)
                 else:
@@ -660,30 +764,23 @@ async def lifespan(server: FastMCP) -> AsyncIterator[GetewayContext]:
             "No proxied MCP servers configured. Running in standalone mode (plugins still active)."
         )
 
-    # --- DYNAMIC REGISTRATION ---
-    # Call registration function *after* servers are started and initial caps fetched
-    # Pass the FastMCP instance `server` to the registration function
+    # Register capabilities from proxied servers
     await register_proxied_capabilities(server, context)
-    # --- END DYNAMIC REGISTRATION ---
 
     try:
-        # Yield the context containing servers, plugin manager, and registration info
+        # Yield the context containing servers and plugin manager
         yield context
     finally:
         logger.info("MCP gateway lifespan shutting down...")
-        # Stop only the servers that were successfully started and potentially registered
+        # Stop only the servers that were successfully started
         stop_tasks = [
             asyncio.create_task(server.stop())
             for name, server in context.proxied_servers.items()
             if server._session is not None  # Check if session was ever active
         ]
         if stop_tasks:
-            await asyncio.gather(
-                *stop_tasks, return_exceptions=True
-            )  # Log errors on stop too
+            await asyncio.gather(*stop_tasks, return_exceptions=True)
             logger.info("All active proxied servers stopped.")
-        context.gateway_tools.clear()  # Clear dynamic registrations
-        context.gateway_prompts.clear()
         logger.info("MCP gateway shutdown complete.")
 
 
@@ -693,55 +790,6 @@ mcp = FastMCP("MCP Gateway", lifespan=lifespan, version="0.1.0")
 
 
 # --- Gateway's Own Capability Implementations ---
-
-
-@mcp.list_tools()
-async def gateway_list_tools(ctx: Context) -> List[types.Tool]:
-    """Lists all tools dynamically registered from proxied servers, plus gateway-specific tools."""
-    gateway_context: GetewayContext = ctx.request_context.lifespan_context
-    registered_tools: List[types.Tool] = []
-
-    # Add dynamically registered tools
-    for tool_info in gateway_context.gateway_tools.values():
-        registered_tools.append(tool_info["schema"])
-
-    # Add gateway's own tools (get_metadata)
-    # Manually define its schema
-    get_metadata_tool_schema = types.Tool(
-        name="get_metadata",
-        description=get_metadata.__doc__ or "Provides metadata about proxied MCPs.",
-        arguments=[],  # get_metadata takes only ctx
-    )
-    registered_tools.append(get_metadata_tool_schema)
-
-    logger.debug(f"Gateway list_tools returning: {[t.name for t in registered_tools]}")
-    return registered_tools
-
-
-@mcp.list_prompts()
-async def gateway_list_prompts(ctx: Context) -> List[types.Prompt]:
-    """Lists all prompts dynamically registered from proxied servers."""
-    gateway_context: GetewayContext = ctx.request_context.lifespan_context
-    registered_prompts: List[types.Prompt] = [
-        prompt_info["schema"]
-        for prompt_info in gateway_context.gateway_prompts.values()
-    ]
-    logger.debug(
-        f"Gateway list_prompts returning: {[p.name for p in registered_prompts]}"
-    )
-    return registered_prompts
-
-
-@mcp.list_resources()
-async def gateway_list_resources(ctx: Context) -> List[types.Resource]:
-    """Lists resources (currently returns empty as dynamic resource registration is not implemented)."""
-    logger.warning(
-        "Gateway list_resources called, but dynamic resource registration is not implemented."
-    )
-    return []
-
-
-# --- Gateway Specific Tools ---
 
 
 @mcp.tool()  # Keep get_metadata as it provides original server details
@@ -837,68 +885,7 @@ async def get_metadata(ctx: Context) -> Dict[str, Any]:
     return metadata
 
 
-# --- Tool/Prompt Execution (Handled by FastMCP routing to dynamic handlers) ---
-# FastMCP needs a way to call the handlers stored in gateway_context.
-# This usually happens via its router. We need to ensure the router uses
-# the handlers we stored. This might require a custom router or adapting FastMCP.
-
-# Let's try adding generic handlers that dispatch based on the context.
-# This brings back the dispatcher pattern, but uses the stored handlers.
-
-
-@mcp.call_tool()  # Generic handler for all dynamically registered tools
-async def gateway_call_tool_dispatcher(
-    name: str, arguments: dict, ctx: Context
-) -> types.CallToolResult:
-    """Dispatches tool calls to dynamically registered handlers."""
-    gateway_context: GetewayContext = ctx.request_context.lifespan_context
-    tool_info = gateway_context.gateway_tools.get(name)
-
-    if tool_info and "handler" in tool_info:
-        handler = tool_info["handler"]
-        # Directly call the stored handler
-        return await handler(ctx, **arguments)
-    else:
-        # Handle case where tool is not found (e.g., if called before registration or invalid name)
-        logger.error(
-            f"Gateway received call for unknown or unregistered dynamic tool: {name}"
-        )
-        return types.CallToolResult(
-            outputs=[{"type": "error", "message": f"Unknown tool: {name}"}]
-        )
-
-
-@mcp.get_prompt()  # Generic handler for all dynamically registered prompts
-async def gateway_get_prompt_dispatcher(
-    name: str, arguments: dict | None, ctx: Context
-) -> types.GetPromptResult:
-    """Dispatches prompt requests to dynamically registered handlers."""
-    gateway_context: GetewayContext = ctx.request_context.lifespan_context
-    prompt_info = gateway_context.gateway_prompts.get(name)
-
-    if prompt_info and "handler" in prompt_info:
-        handler = prompt_info["handler"]
-        # Directly call the stored handler
-        return await handler(ctx, **(arguments or {}))
-    else:
-        logger.error(
-            f"Gateway received request for unknown or unregistered dynamic prompt: {name}"
-        )
-        # Return an error within the prompt structure
-        return types.GetPromptResult(
-            messages=[
-                types.PromptMessage(
-                    role="assistant",
-                    content=types.TextContent(
-                        type="text", text=f"Unknown prompt: {name}"
-                    ),
-                )
-            ]
-        )
-
-
 # --- Argument Parsing & Main ---
-# (Argument parsing and main function remain the same)
 def parse_args(args=None):
     """Parses command-line arguments."""
     parser = argparse.ArgumentParser(description="MCP Gateway Server")
@@ -923,12 +910,6 @@ def parse_args(args=None):
         nargs="?",
         const="all",
         default=[],
-    )
-    parser.add_argument(
-        "--plugin-dir",
-        type=str,
-        default=None,
-        help="Path to the directory containing plugin subdirectories (e.g., 'guardrails', 'tracing'). Defaults to './plugins' relative to server.py.",
     )
     if args is None:
         args = sys.argv[1:]

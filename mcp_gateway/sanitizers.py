@@ -51,7 +51,7 @@ async def sanitize_request(
         mcp_context=mcp_context,
     )
     try:
-        sanitized_args = await plugin_manager.run_request_plugins(context)
+        sanitized_args = await plugin_manager.process_request(context)
         return sanitized_args
     except Exception as e:
         # Decide how to handle errors during plugin execution
@@ -104,7 +104,7 @@ async def sanitize_response(
         mcp_context=mcp_context,
     )
     try:
-        sanitized_response = await plugin_manager.run_response_plugins(context)
+        sanitized_response = await plugin_manager.process_response(context)
         return sanitized_response
     except SanitizationError as se:
         # Allow specific SanitizationErrors from plugins to propagate

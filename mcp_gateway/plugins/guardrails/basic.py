@@ -6,8 +6,10 @@ from typing import Any, Dict, Optional, List, Tuple
 
 from mcp import types
 from mcp_gateway.plugins.base import GuardrailPlugin, PluginContext
+
 # Import SanitizationError if needed for response handling
 # from mcp_gateway.sanitizers import SanitizationError
+from mcp_gateway.plugins.manager import register_plugin
 
 logger = logging.getLogger(__name__)
 
@@ -67,12 +69,12 @@ TOKENS_REGEXES = {
 # Removed DEFAULT_PII_ENTITIES
 
 
+@register_plugin
 class BasicGuardrailPlugin(GuardrailPlugin):
     """
     A basic guardrail that removes common secrets using regex.
     """
 
-    plugin_type = "guardrail"
     plugin_name = "basic"
 
     def __init__(self):
@@ -251,35 +253,29 @@ class BasicGuardrailPlugin(GuardrailPlugin):
                     sanitized_text = self._sanitize_text(original_text)
                     if original_text != sanitized_text:
                         message_changed = True
-
-                    # Create new objects to avoid modifying originals
-                    sanitized_content = types.TextContent(
-                        type="text", text=sanitized_text
-                    )
-                    sanitized_messages.append(
-                        types.PromptMessage(
+                        # Create new content and message objects to avoid side effects
+                        sanitized_content = types.TextContent(
+                            type="text", text=sanitized_text
+                        )
+                        sanitized_message = types.Message(
                             role=message.role, content=sanitized_content
                         )
-                    )
+                        sanitized_messages.append(sanitized_message)
+                    else:
+                        # No change, keep original
+                        sanitized_messages.append(message)
                 else:
-                    # Keep non-text messages as they are
+                    # Non-text content, keep as-is
                     sanitized_messages.append(message)
 
-            # Return a new GetPromptResult only if messages were modified
             if message_changed:
                 logger.info(
                     f"Cleaned secrets from GetPromptResult messages for {context.server_name}/{context.capability_name}"
                 )
-                return types.GetPromptResult(
-                    description=response.description, messages=sanitized_messages
-                )
+                # Create a new GetPromptResult with sanitized messages
+                return types.GetPromptResult(messages=sanitized_messages)
             else:
                 return response  # Return original if no changes
 
-        # Add handling for other response types if necessary
-
-        # If the response type is not handled, return it unchanged
-        logger.debug(
-            f"Response type {type(response)} not specifically handled by BasicGuardrailPlugin, returning original."
-        )
+        # --- Default case: return unmodified response ---
         return response
