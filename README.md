@@ -12,14 +12,22 @@ MCP Gateway acts as an intermediary between LLMs and other MCP servers. It:
 4. Provides a unified interface for discovering and interacting with all proxied MCPs.
 
 ## Installation
+
+### Python (recommended)
 Install the mcp-gateway package:
 ```bash
 pip install mcp-gateway
 ```
 
-> `--mcp-json-path` - must lead to your [mcp.json](https://docs.cursor.com/context/model-context-protocol#configuration-locations) or [claude_desktop_config.json](https://modelcontextprotocol.io/quickstart/server#testing-your-server-with-claude-for-desktop)
+> `--mcp-json-path` - must lead to your [mcp.json](https://docs.cursor.com/context/model-context-protocol#configuration-locations) or [claude_desktop_config.json](https://modelcontextprotocol.io/quickstart/server#testing-your-server-with-claude-for-desktop)    
+> `--enable-guardrails` - you can use this to activate multiple guardrail plugins    
+> `--enble-tracing`  - You can use this to activate multiple tracing plugins
+  
+### Usage   
+This examples gives you the basic and presidio guardrails for token and PII masking for filesystem MCP.   
+You can add more MCPs that will be under the Gateway by putting the MCP server configuration under the "servers" key.
 
-> `--enable-guardrails` - you can use this to activate multiple guardrail plugins
+
 
 <details>
 <summary>Cursor example:</summary>
@@ -87,8 +95,53 @@ which python
 ```
 </details>
 
-This example gives you the basic and presidio guardrails for token and PII masking for filesystem MCP.
-You can add more MCPs that will be under the Gateway by putting the MCP server configuration under the "servers" key.
+<details>
+<summary>Docker</summary>
+
+
+Build the image after clone this repo
+```bash
+docker build -t mcp/gateway .
+```
+
+```json
+{
+  "mcpServers": {
+      "mcp-gateway": {
+          "command": "docker",
+          "args": [
+            "run",
+            "--rm",
+            "--mount", "type=bind,source=/Users/oro/Projects/playground/mcp-gateway,target=/app",
+            "-i",
+            "-v", "/Users/oro/.cursor/mcp.json:/config/mcp.json:ro",
+            "-e", "LASSO_API_KEY=<LASSO_API_KEY>",
+            "-v", "mcp-gateway-logs:/logs",
+            "mcp/gateway:latest",
+            "--mcp-json-path", "/config/mcp.json",
+            "--enable-guardrails", "basic",
+            "--enable-guardrails", "lasso"
+          ],
+          "servers": {
+              "filesystem": {
+                  "command": "npx",
+                  "args": [
+                      "-y",
+                      "@modelcontextprotocol/server-filesystem",
+                      "."
+                  ]
+              }
+          }
+      }
+  }
+}
+```
+
+In this example we use lasso and basic guardrail to show how we can pass enviroment varabile and arguments to the docker and how we can mount storage for the filesystem MCP.
+The Docker image can be built with optional dependencies required by certain plugins (e.g., `presidio`).   
+Use the `INSTALL_EXTRAS` build argument during the `docker build` command. Provide a comma-separated string of the desired extras: `"presidio,xetrack"`
+
+</details>
 
 ## Quickstart
 
