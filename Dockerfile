@@ -40,6 +40,21 @@ FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
+# Install Node.js and npm (which includes npx)
+# Need curl, gnupg for adding nodesource repo
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
+    && apt-get install -y nodejs \
+    # Clean up apt lists to reduce image size
+    && rm -rf /var/lib/apt/lists/*
+
+# Verify installations (optional)
+RUN node --version
+RUN npm --version
+RUN npx --version
+
 # Create a non-root user
 RUN useradd --create-home --shell /bin/bash appuser
 USER appuser
