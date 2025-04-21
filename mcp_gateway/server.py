@@ -697,22 +697,66 @@ async def lifespan(server: FastMCP) -> AsyncIterator[GetewayContext]:
     global cli_args
     logger.info("MCP gateway lifespan starting...")
 
-    # Prepare plugin configuration from CLI arguments
+    # Initialize plugin categories
     enabled_plugin_types = []
     enabled_plugins = {}
 
+    # Handle the unified plugin parameter and plugin type discovery
+    if cli_args and cli_args.plugin:
+        # Import the necessary functions from the plugin manager
+        from mcp_gateway.plugins.manager import get_plugin_type, discover_plugins
+
+        # Ensure plugins are discovered
+        discover_plugins()
+
+        for plugin_name in cli_args.plugin:
+            # Get the plugin type using the plugin name
+            plugin_type = get_plugin_type(plugin_name)
+
+            if plugin_type:
+                # Add to appropriate category
+                if plugin_type not in enabled_plugin_types:
+                    enabled_plugin_types.append(plugin_type)
+                    enabled_plugins[plugin_type] = []
+
+                # Add the plugin to its type list (handle potential duplicates)
+                if plugin_name not in enabled_plugins[plugin_type]:
+                    enabled_plugins[plugin_type].append(plugin_name)
+                    logger.info(f"Enabling {plugin_type} plugin: {plugin_name}")
+            else:
+                logger.warning(
+                    f"Unknown plugin: {plugin_name} - could not determine plugin type"
+                )
+
+    # Handle backward compatibility with separate parameters
     if cli_args and cli_args.enable_guardrails:
-        enabled_plugin_types.append("guardrail")
-        enabled_plugins["guardrail"] = cli_args.enable_guardrails
-        logger.info(f"Guardrail plugins ENABLED: {cli_args.enable_guardrails}")
-    else:
+        if "guardrail" not in enabled_plugin_types:
+            enabled_plugin_types.append("guardrail")
+
+        if "guardrail" not in enabled_plugins:
+            enabled_plugins["guardrail"] = []
+
+        for plugin in cli_args.enable_guardrails:
+            if plugin not in enabled_plugins["guardrail"]:
+                enabled_plugins["guardrail"].append(plugin)
+
+        logger.info(f"Guardrail plugins ENABLED: {enabled_plugins['guardrail']}")
+    elif "guardrail" not in enabled_plugin_types:
         logger.info("Guardrail plugins DISABLED.")
 
     if cli_args and cli_args.enable_tracing:
-        enabled_plugin_types.append("tracing")
-        enabled_plugins["tracing"] = cli_args.enable_tracing
-        logger.info(f"Tracing plugins ENABLED: {cli_args.enable_tracing}")
-    else:
+        if "tracing" not in enabled_plugin_types:
+            enabled_plugin_types.append("tracing")
+
+        if "tracing" not in enabled_plugins:
+            enabled_plugins["tracing"] = []
+
+        for plugin in cli_args.enable_tracing:
+            if plugin not in enabled_plugins["tracing"]:
+                enabled_plugins["tracing"].append(plugin)
+
+        logger.info(f"Tracing plugins ENABLED: {enabled_plugins['tracing']}")
+    elif "tracing" not in enabled_plugin_types:
         logger.info("Tracing plugins DISABLED.")
 
     # Initialize plugin manager with configuration
@@ -895,10 +939,19 @@ def parse_args(args=None):
         required=True,
         help="Path to the mcp.json configuration file",
     )
+    # Add unified plugin parameter
+    parser.add_argument(
+        "-p",
+        "--plugin",
+        action="append",
+        help="Enable specific plugins (e.g., 'basic', 'lasso', 'xetrack'). Multiple plugins can be enabled by repeating the argument.",
+        default=[],
+    )
+    # Keep backward compatibility
     parser.add_argument(
         "--enable-guardrails",
         action="append",
-        help="Enable specific guardrail plugins (e.g., 'basic', 'lasso'). Multiple plugins can be enabled by repeating the argument. If used without a value, all guardrail plugins are enabled.",
+        help="[DEPRECATED] Enable specific guardrail plugins. Use --plugin instead.",
         nargs="?",
         const="all",
         default=[],
@@ -906,7 +959,7 @@ def parse_args(args=None):
     parser.add_argument(
         "--enable-tracing",
         action="append",
-        help="Enable specific tracing plugins. Multiple plugins can be enabled by repeating the argument. If used without a value, all tracing plugins are enabled.",
+        help="[DEPRECATED] Enable specific tracing plugins. Use --plugin instead.",
         nargs="?",
         const="all",
         default=[],

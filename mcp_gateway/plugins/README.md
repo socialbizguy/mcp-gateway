@@ -1,118 +1,85 @@
 # MCP Gateway Plugin System
 
-The MCP Gateway includes a flexible plugin system that allows for extending functionality through custom plugins. This document explains how to create and use plugins with the gateway.
+This directory contains the plugin system for the MCP Gateway.
 
 ## Plugin Types
 
-The gateway supports two main types of plugins:
+The MCP Gateway supports the following plugin types:
 
-1. **Guardrail Plugins**: These plugins can modify or block requests and responses based on security or compliance rules.
-2. **Tracing Plugins**: These plugins observe requests and responses for logging, monitoring, or auditing purposes.
+- **Guardrail Plugins**: These plugins can inspect and modify requests and responses to enforce security policies.
+- **Tracing Plugins**: These plugins can monitor requests and responses for logging, metrics, and debugging.
 
-## Creating Custom Plugins
+## Creating a New Plugin
 
-To create a custom plugin, follow these steps:
+To create a new plugin, follow these steps:
 
-1. Create a new Python file in an appropriate location
-2. Import the required base classes and the registration decorator
-3. Extend the appropriate base class (`GuardrailPlugin` or `TracingPlugin`)
-4. Apply the `@register_plugin` decorator to your class
-5. Implement the required methods
-6. Set the `plugin_name` attribute for easy identification
+1. Decide which plugin type your plugin belongs to (guardrail or tracing).
+2. Create a new Python file in the appropriate subdirectory (guardrails or tracing).
+3. Implement a class that extends the appropriate base class.
+4. Register your plugin using the `@register_plugin` decorator.
 
 ### Example Plugin
+
+Here's an example of a simple guardrail plugin:
 
 ```python
 from typing import Any, Dict, Optional
 from mcp_gateway.plugins.base import GuardrailPlugin, PluginContext
 from mcp_gateway.plugins.manager import register_plugin
 
+import logging
+logger = logging.getLogger(__name__)
+
 @register_plugin
-class MyCustomGuardrailPlugin(GuardrailPlugin):
-    """A custom guardrail plugin that does something useful."""
+class MyGuardrailPlugin(GuardrailPlugin):
+    """A custom guardrail plugin that blocks certain operations."""
     
-    plugin_name = "my-custom"  # Used for identification in configuration
+    # Both class name and plugin_name are used for command-line arguments
+    # So either '--plugin MyGuardrail' or '--plugin my-guardrail' will work
+    plugin_name = "my-guardrail"
     
-    def __init__(self):
-        # Initialize your plugin
-        self.config = {}
-        
     def load(self, config: Optional[Dict[str, Any]] = None) -> None:
-        """Load plugin configuration."""
-        # Handle configuration here
-        self.config = config or {}
-        
+        """Configure the plugin with optional settings."""
+        logger.info("MyGuardrailPlugin loaded")
+    
     def process_request(self, context: PluginContext) -> Optional[Dict[str, Any]]:
-        """Process the request."""
-        # Modify or validate request arguments
+        """Process a request before it's sent to the server."""
+        # Return None to block the request, or return modified arguments
         return context.arguments
-        
+    
     def process_response(self, context: PluginContext) -> Any:
-        """Process the response."""
-        # Modify or validate the response
+        """Process a response before it's returned to the client."""
+        # Return modified response
         return context.response
 ```
 
-## Plugin Registry Pattern
+## Plugin Naming
 
-The MCP Gateway uses the Registry Pattern with decorator-based registration for plugins. This approach offers several benefits:
+Plugins can be referenced in two ways:
 
-1. **Self-Registration**: Plugins register themselves when imported, eliminating the need for manual registration
-2. **No Filesystem Scanning**: The system doesn't depend on directory structure for plugin discovery
-3. **Type Safety**: Better IDE support and error checking through type hints
-4. **Explicit Dependencies**: Registration makes dependencies clear and explicit
-5. **Extensibility**: New plugin types can be added without modifying the manager
+1. By their class name (e.g., `MyGuardrailPlugin`)
+2. By their `plugin_name` attribute (e.g., `my-guardrail`)
 
-### How It Works
+Both names are registered during plugin discovery, so either can be used in command-line arguments. For example:
 
-1. The `@register_plugin` decorator adds plugin classes to a central registry
-2. The `PluginManager` loads plugins from this registry based on configuration
-3. Plugins are instantiated only when enabled in the configuration
-4. Processing flows through enabled plugins based on their type
+```bash
+mcp-gateway -p MyGuardrailPlugin -p basic
+# or
+mcp-gateway -p my-guardrail -p basic
+```
+
+## Best Practices
+
+1. **Unique Naming**: Ensure your plugin's class name and `plugin_name` attribute are unique to avoid conflicts.
+2. **Clear Documentation**: Document your plugin's purpose and configuration options.
+3. **Error Handling**: Implement robust error handling to avoid breaking the gateway.
+4. **Minimal Dependencies**: Keep external dependencies minimal and make them optional when possible.
+5. **Efficient Processing**: Minimize processing overhead, especially for plugins that run on every request.
+
+## Plugin Discovery
+
+Plugins are discovered automatically at runtime using Python's package import system. No additional registration is required beyond using the `@register_plugin` decorator.
 
 ## Plugin Configuration
 
-Plugins are configured and loaded through command-line arguments or configuration files.
-
-### Command-line Example
-
-```bash
-python -m mcp_gateway.server --enable-guardrails my-custom,example_guardrail --enable-tracing simple_timing
-```
-
-### JSON Configuration Example
-
-```json
-{
-  "mcpServers": {
-    "mcp-gateway": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/path/to/mcp-proxy",
-        "run",
-        "mcp_gateway/server.py",
-        "--enable-guardrails", "my-custom,example_guardrail",
-        "--enable-tracing", "simple_timing"
-      ],
-      "env": {
-        "PYTHONPATH": "/path/to/mcp-proxy"
-      }
-    }
-  }
-}
-```
-
-## Plugin Loading Process
-
-1. The `PluginManager` is initialized with configuration (enabled types and plugins)
-2. It references the central registry to find registered plugin classes
-3. For each enabled plugin type, it instantiates and loads the specified plugins
-4. Plugins are then used to process requests and responses as they flow through the system
-
-## Example Plugins
-
-The gateway includes several example plugins:
-
-- **`example_guardrail`**: A basic guardrail plugin demonstrating the registration pattern
-- **`simple_timing`**: A tracing plugin that logs request/response timing information
+Plugins can be configured using the `load()` method, which receives a configuration dictionary. This dictionary is currently empty by default, but future versions of MCP Gateway may provide plugin-specific configuration options.

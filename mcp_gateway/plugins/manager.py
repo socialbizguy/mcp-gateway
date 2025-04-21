@@ -12,7 +12,7 @@ from mcp_gateway.plugins.base import (
 logger = logging.getLogger(__name__)
 
 # Type variable for plugins
-PluginType = TypeVar("PluginType", bound=Plugin)
+PluginT = TypeVar("PluginT", bound=Plugin)
 
 # Plugin registry to store all registered plugins
 _PLUGIN_REGISTRY: Dict[str, List[Type[Plugin]]] = {
@@ -20,8 +20,14 @@ _PLUGIN_REGISTRY: Dict[str, List[Type[Plugin]]] = {
     TracingPlugin.plugin_type: [],
 }
 
+# Plugin name to class mapping - helps with lookups
+_PLUGIN_NAME_TO_INFO: Dict[str, Dict[str, Any]] = {}
 
-def register_plugin(plugin_cls: Type[PluginType]) -> Type[PluginType]:
+# Flag to track if plugins have been discovered
+_PLUGINS_DISCOVERED = False
+
+
+def register_plugin(plugin_cls: Type[PluginT]) -> Type[PluginT]:
     """Decorator for registering plugin classes.
 
     Args:
@@ -44,9 +50,73 @@ def register_plugin(plugin_cls: Type[PluginType]) -> Type[PluginType]:
 
     # Register the plugin class
     _PLUGIN_REGISTRY[plugin_type].append(plugin_cls)
+
+    # Store both class name and plugin_name attribute as lookup keys
+    plugin_class_name = plugin_cls.__name__.lower()
+    _PLUGIN_NAME_TO_INFO[plugin_class_name] = {
+        "type": plugin_type,
+        "class": plugin_cls,
+    }
+
+    # Also register by plugin_name attribute if different
+    plugin_attr_name = getattr(plugin_cls, "plugin_name", "").lower()
+    if plugin_attr_name and plugin_attr_name != plugin_class_name:
+        _PLUGIN_NAME_TO_INFO[plugin_attr_name] = {
+            "type": plugin_type,
+            "class": plugin_cls,
+        }
+
     logger.info(f"Registered plugin: {plugin_cls.__name__} (type: {plugin_type})")
 
     return plugin_cls
+
+
+def discover_plugins():
+    """Discover plugins by importing plugin modules via their __init__.py files.
+
+    This simplified approach relies on the imports already defined in the package __init__.py files
+    rather than using dynamic module discovery.
+    """
+    global _PLUGINS_DISCOVERED
+
+    if _PLUGINS_DISCOVERED:
+        return
+
+    logger.debug("Discovering plugins...")
+
+    # Import plugin packages to trigger registration via their __init__.py files
+    # The __init__.py files should already import all plugin modules
+    try:
+        import mcp_gateway.plugins.guardrails
+        import mcp_gateway.plugins.tracing
+
+        logger.info(f"Discovered {len(_PLUGIN_NAME_TO_INFO)} plugins")
+        _PLUGINS_DISCOVERED = True
+    except ImportError as e:
+        logger.error(f"Failed to import plugin packages: {e}")
+
+
+def get_plugin_type(plugin_name: str) -> Optional[str]:
+    """Get the plugin type for a given plugin name.
+
+    Args:
+        plugin_name: The name of the plugin to look up
+
+    Returns:
+        The plugin type or None if not found
+    """
+    # Make sure plugins are discovered
+    discover_plugins()
+
+    # Normalize the plugin name
+    plugin_name_lower = plugin_name.lower()
+
+    # Look up the plugin type
+    plugin_info = _PLUGIN_NAME_TO_INFO.get(plugin_name_lower)
+    if plugin_info:
+        return plugin_info["type"]
+
+    return None
 
 
 class PluginManager:
@@ -66,6 +136,9 @@ class PluginManager:
                           (e.g., {'guardrail': ['basic', 'lasso']}).
                           If a type has an empty list or contains 'all', all plugins of that type are enabled.
         """
+        # Ensure plugins are discovered before initialization
+        discover_plugins()
+
         self.enabled_types = enabled_types or []
         self.enabled_plugins = enabled_plugins or {}
 
@@ -97,25 +170,40 @@ class PluginManager:
 
             # Load plugins of this type
             for plugin_cls in _PLUGIN_REGISTRY[plugin_type]:
-                plugin_name = plugin_cls.__name__
+                # Try matching by class name or plugin_name attribute
+                plugin_name = plugin_cls.__name__.lower()
+                plugin_attr_name = getattr(plugin_cls, "plugin_name", "").lower()
 
-                # Skip if not enabled and we're not loading all
-                if not load_all_of_type:
-                    if plugin_name.lower() not in [p.lower() for p in enabled_names]:
-                        logger.debug(
-                            f"Skipping plugin {plugin_name} - not explicitly enabled"
-                        )
-                        continue
+                # Check if plugin should be loaded
+                should_load = load_all_of_type
+                if not should_load:
+                    for enabled in enabled_names:
+                        enabled_lower = enabled.lower()
+                        if (
+                            enabled_lower == plugin_name
+                            or enabled_lower == plugin_attr_name
+                        ):
+                            should_load = True
+                            break
+
+                if not should_load:
+                    logger.debug(
+                        f"Skipping plugin {plugin_cls.__name__} - not explicitly enabled"
+                    )
+                    continue
 
                 # Instantiate and load the plugin
                 try:
                     plugin_instance = plugin_cls()
                     plugin_instance.load({})  # Empty config by default
                     self._plugins[plugin_type].append(plugin_instance)
-                    logger.info(f"Loaded plugin: {plugin_name} (type: {plugin_type})")
+                    logger.info(
+                        f"Loaded plugin: {plugin_cls.__name__} (type: {plugin_type})"
+                    )
                 except Exception as e:
                     logger.error(
-                        f"Failed to load plugin {plugin_name}: {e}", exc_info=True
+                        f"Failed to load plugin {plugin_cls.__name__}: {e}",
+                        exc_info=True,
                     )
 
         # Log summary of loaded plugins
