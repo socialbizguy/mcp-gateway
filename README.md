@@ -19,9 +19,15 @@ Install the mcp-gateway package:
 pip install mcp-gateway
 ```
 
-> `--mcp-json-path` - must lead to your [mcp.json](https://docs.cursor.com/context/model-context-protocol#configuration-locations) or [claude_desktop_config.json](https://modelcontextprotocol.io/quickstart/server#testing-your-server-with-claude-for-desktop)
+> `--mcp-json-path` - must lead to your [mcp.json](https://docs.cursor.com/context/model-context-protocol#configuration-locations) or [claude_desktop_config.json](https://modelcontextprotocol.io/quickstart/server#testing-your-server-with-claude-for-desktop)    
+> `--enable-guardrails` - you can use this to activate multiple guardrail plugins    
+> `--enble-tracing`  - You can use this to activate multiple tracing plugins
+  
+### Usage   
+This examples gives you the basic and presidio guardrails for token and PII masking for filesystem MCP.   
+You can add more MCPs that will be under the Gateway by putting the MCP server configuration under the "servers" key.
 
-> `--enable-guardrails` - you can use this to activate multiple guardrail plugins
+
 
 <details>
 <summary>Cursor example:</summary>
@@ -89,14 +95,9 @@ which python
 ```
 </details>
 
+<details>
+<summary>Docker</summary>
 
-This examples gives you the basic and presidio guardrails for token and PII masking for filesystem MCP.
-You can add more MCPs that will be under the Gateway by putting the MCP server configuration under the "servers" key.
-
-
-### Docker
-
-> When running the MCP Gateway via Docker, the Docker image must include all necessary dependencies for any underlying MCP servers managed by the gateway. You may need to edit the `Dockerfile` to add these requirements.
 
 Build the image after clone this repo
 ```bash
@@ -137,8 +138,10 @@ docker build -t mcp/gateway .
 ```
 
 In this example we use lasso and basic guardrail to show how we can pass enviroment varabile and arguments to the docker and how we can mount storage for the filesystem MCP.
-The Docker image can be built with optional dependencies required by certain plugins (e.g., `presidio`). Use the `INSTALL_EXTRAS` build argument during the `docker build` command. Provide a comma-separated string of the desired extras: `"presidio,xetrack"`
+The Docker image can be built with optional dependencies required by certain plugins (e.g., `presidio`).   
+Use the `INSTALL_EXTRAS` build argument during the `docker build` command. Provide a comma-separated string of the desired extras: `"presidio,xetrack"`
 
+</details>
 
 ## Quickstart
 
