@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from mcp import types
 from mcp_gateway.plugins.base import GuardrailPlugin, PluginContext
+from mcp_gateway.plugins.manager import register_plugin
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +22,13 @@ class LassoGuardrailMissingSecrets(Exception):
     pass
 
 
+@register_plugin
 class LassoGuardrailPlugin(GuardrailPlugin):
     """
     A guardrail plugin that integrates with Lasso Security's API to detect
     harmful content in messages before they're sent to LLM services.
     """
 
-    plugin_type = "guardrail"
     plugin_name = "lasso"
 
     def __init__(self):

@@ -20,14 +20,16 @@ pip install mcp-gateway
 ```
 
 > `--mcp-json-path` - must lead to your [mcp.json](https://docs.cursor.com/context/model-context-protocol#configuration-locations) or [claude_desktop_config.json](https://modelcontextprotocol.io/quickstart/server#testing-your-server-with-claude-for-desktop)    
-> `--enable-guardrails` - you can use this to activate multiple guardrail plugins    
-> `--enble-tracing`  - You can use this to activate multiple tracing plugins
-  
+> `--plugin` or `-p` - Specify the plugins to enable (can be used multiple times)
+
 ### Usage   
-This examples gives you the basic and presidio guardrails for token and PII masking for filesystem MCP.   
+This example enables the basic guardrail for token masking and xetrack tracing plugin for filesystem MCP:
+
+```bash
+mcp-gateway --mcp-json-path ~/.cursor/mcp.json -p basic -p xetrack
+```
+
 You can add more MCPs that will be under the Gateway by putting the MCP server configuration under the "servers" key.
-
-
 
 <details>
 <summary>Cursor example:</summary>
@@ -40,8 +42,10 @@ You can add more MCPs that will be under the Gateway by putting the MCP server c
           "args": [
               "--mcp-json-path",
               "~/.cursor/mcp.json",
-              "--enable-guardrails",
-              "basic"
+              "--plugin",
+              "basic",
+              "--plugin",
+              "xetrack"
           ],
           "servers": {
               "filesystem": {
@@ -76,7 +80,7 @@ which python
             "mcp_gateway.server",
             "--mcp-json-path",
             "<path to claude_desktop_config>",
-            "--enable-guardrails",
+            "--plugin",
             "basic"
           ],
           "servers": {
@@ -119,8 +123,8 @@ docker build -t mcp/gateway .
             "-v", "mcp-gateway-logs:/logs",
             "mcp/gateway:latest",
             "--mcp-json-path", "/config/mcp.json",
-            "--enable-guardrails", "basic",
-            "--enable-guardrails", "lasso"
+            "--plugin", "basic",
+            "--plugin", "lasso"
           ],
           "servers": {
               "filesystem": {
@@ -169,12 +173,12 @@ MCP Gateway will automatically mask the sensitive token in the response, prevent
 Start the MCP Gateway server with python_env config on this repository root:
 
 ```bash
-mcp-gateway --enable-guardrails basic --enable-guardrails presidio
+mcp-gateway -p basic -p presidio
 ```
 
 You can also debug the server using:
 ```bash
-LOGLEVEL=DEBUG mcp-gateway --mcp-json-path ~/.cursor/mcp.json --enable-guardrails basic --enable-guardrails presidio
+LOGLEVEL=DEBUG mcp-gateway --mcp-json-path ~/.cursor/mcp.json -p basic -p presidio
 ```
 
 ## Tools
@@ -204,7 +208,7 @@ MCP Gateway supports various plugins to enhance security and functionality. Here
 
 ### Basic 
 ```bash
-mcp-gateway --enable-guardrails basic
+mcp-gateway -p basic
 ```
 Masking basic secerts
 - azure client secret
@@ -220,7 +224,7 @@ Masking basic secerts
 
 ### Presidio 
 ```bash
-mcp-gateway --enable-guardrails presidio
+mcp-gateway -p presidio
 ```
 [Presidio](https://microsoft.github.io/presidio/) is identification and anonymization package
 - Credit Card
@@ -232,7 +236,7 @@ mcp-gateway --enable-guardrails presidio
 
 ### Lasso 
 ```bash
-mcp-gateway --enable-guardrails lasso
+mcp-gateway -p lasso
 ```
 #### Prerequisites
 - **Obtain a Lasso API key** by signing up at [Lasso Security](https://www.lasso.security/).
@@ -252,7 +256,7 @@ Example:
           "args": [
               "--mcp-json-path",
               "~/.cursor/mcp.json",
-              "--enable-guardrails",
+              "-p",
               "lasso"
           ],
           "env": {
@@ -297,7 +301,7 @@ Read more on our website 👉 [Lasso Security](https://www.lasso.security/).
 We can use it to debug and monitor **tool calls** with logs ([loguru](https://github.com/Delgan/loguru)) or [duckdb](https://duckdb.org) and [sqlite](https://sqlite.org).   .
 
 ```bash
-mcp-gateway --enable-tracing xetrack
+mcp-gateway -p xetrack
 
 ```
 #### Prerequisites
@@ -322,7 +326,7 @@ mcp-gateway --enable-tracing xetrack
             "args": [
                 "--mcp-json-path",
                 "~/.cursor/mcp.json",
-                "--enable-tracing",
+                "-p",
                 "xetrack"
             ],
             "env": {
