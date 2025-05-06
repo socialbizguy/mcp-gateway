@@ -44,11 +44,15 @@ RUN python -m pip install --upgrade pip setuptools wheel \
       "sentencepiece==0.2.0" \
       "sentence-transformers==2.2.2"
 
-# 2. Install HubSpot MCP with build isolation (allow hatchling) but skip runtime deps
+# 2. Install HubSpot MCP (no deps) and add a Python wrapper to guarantee executable
 RUN pip install --no-cache-dir --no-deps \
-      "git+https://github.com/socialbizguy/mcp-hubspot.git@main#egg=mcp-server-hubspot"
+      "git+https://github.com/socialbizguy/mcp-hubspot.git@main#egg=mcp-server-hubspot" \
+ && printf '#!/usr/bin/env python3
+import mcp_server_hubspot; mcp_server_hubspot.run_main()
+' > /usr/local/bin/mcp-server-hubspot \
+ && chmod +x /usr/local/bin/mcp-server-hubspot
 
-# Create non-root user and switch
+# 3. Create non-root user and switch
 RUN useradd --create-home --shell /bin/bash appuser
 USER appuser
 
@@ -58,4 +62,4 @@ COPY --chown=appuser:appuser . /app
 ENV PYTHONUNBUFFERED=1
 
 # Entrypoint for the gateway
-ENTRYPOINT ["mcp-gateway"] ["mcp-gateway"]
+ENTRYPOINT ["mcp-gateway"]
