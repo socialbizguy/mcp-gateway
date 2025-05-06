@@ -50,11 +50,10 @@ RUN python -m pip install --upgrade pip setuptools wheel
 # ✅ Install pinned dependencies to avoid breaking changes
 RUN apt-get update && apt-get install -y gcc g++ python3-dev
 RUN pip install --no-cache-dir \
-    "tokenizers==0.13.3" \
-    "transformers==4.29.2" \
-    "sentencepiece==0.1.99" \
-    "sentence-transformers==2.2.2" \
-    "huggingface_hub==0.14.1"
+  "transformers==4.29.2" \
+  "sentencepiece==0.1.99" \
+  "sentence-transformers==2.2.2" \
+  "huggingface_hub==0.14.1"
 
 # ✅ Install MCP without extra deps, create CLI shim
 RUN pip install --no-cache-dir --no-deps \
