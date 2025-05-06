@@ -50,8 +50,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Clean up apt lists to reduce image size
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir hubspot-mcp
-
 # Verify installations (optional)
 RUN node --version
 RUN npm --version
@@ -64,6 +62,8 @@ USER appuser
 # Copy the virtual environment from the builder stage
 COPY --from=uv /usr/local/bin/ /usr/local/bin/
 COPY --from=uv /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/
+
+RUN pip install --no-cache-dir hubspot-mcp
 
 # Copy the application code
 COPY --chown=appuser:appuser . /app
