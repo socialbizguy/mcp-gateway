@@ -50,6 +50,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Clean up apt lists to reduce image size
     && rm -rf /var/lib/apt/lists/*
 
+RUN pip install --no-cache-dir hubspot-mcp
+
 # Verify installations (optional)
 RUN node --version
 RUN npm --version
