@@ -3,24 +3,22 @@
 ############################
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS uv
 
-# Optional extras for your own project
-# e.g. "cli,xetrack" – leave blank if you don’t need any
-ARG INSTALL_EXTRAS=""
+ARG INSTALL_EXTRAS="cli,xetrack"
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1
 
-# --- Install base deps listed in pyproject.toml (no extras yet)
+# Base deps
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --no-dev --no-editable --no-install-project
 
-# --- Copy project source and install with extras (if any)
 COPY . /app
+
+# Project + extras
 RUN --mount=type=cache,target=/root/.cache/uv \
-    EXTRA_SPECIFIER="" && \
-    [ -n "$INSTALL_EXTRAS" ] && EXTRA_SPECIFIER="[${INSTALL_EXTRAS}]" ; \
-    echo "Installing project with extras: .${EXTRA_SPECIFIER}" && \
-    uv pip install --system ".${EXTRA_SPECIFIER}"
+    EXTRA="[${INSTALL_EXTRAS}]" && \
+    echo "Installing project with extras: .${EXTRA}" && \
+    uv pip install --system ".${EXTRA}"
 
 ############################
 # ─── Runtime stage ────────────────────────────────────────────────
@@ -29,26 +27,30 @@ FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
-# --- OS tooling (git needed for pip VCS install, node optional)
+# ── OS tools: git + build‑essentials for PEP‑517 wheel builds
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git curl gnupg \
-    && curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
+        git build-essential gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# --- Bring in everything the builder put in /usr/local
+# ── NodeJS (uncomment if you genuinely need it)
+# RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
+#     && apt-get install -y --no-install-recommends nodejs \
+#     && rm -rf /var/lib/apt/lists/*
+
+# ── Copy everything the builder installed
 COPY --from=uv /usr/local/ /usr/local/
 
-# --- Install HubSpot MCP straight from GitHub
-RUN pip install --no-cache-dir \
+# ── Ensure latest pip & friends, then install HubSpot MCP from GitHub
+RUN python -m pip install --upgrade pip setuptools wheel \
+ && pip install --no-cache-dir \
     "git+https://github.com/socialbizguy/mcp-hubspot.git@main#egg=mcp-hubspot"
 
-# --- App code (non‑root user for safety)
-COPY --chown=appuser:appuser . /app
+# ── Non‑root user
 RUN useradd --create-home --shell /bin/bash appuser
 USER appuser
 
-ENV PYTHONUNBUFFERED=1
+# ── App code (if runtime needs it; omit for pure library image)
+COPY --chown=appuser:appuser . /app
 
-# --- Entrypoint
+ENV PYTHONUNBUFFERED=1
 ENTRYPOINT ["mcp-gateway"]
