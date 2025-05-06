@@ -36,7 +36,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=uv /usr/local/ /usr/local/
 
 # Python dependencies
-# 1. Upgrade build tooling
 RUN python -m pip install --upgrade pip setuptools wheel \
  && pip install --no-cache-dir \
       "tokenizers==0.15.2" \
@@ -44,19 +43,17 @@ RUN python -m pip install --upgrade pip setuptools wheel \
       "sentencepiece==0.2.0" \
       "sentence-transformers==2.2.2"
 
-# 2. Install HubSpot MCP (no deps) and add a Python wrapper to guarantee executable
+# Install HubSpot MCP and create a shim for stdio plugin
 RUN pip install --no-cache-dir --no-deps \
-      "git+https://github.com/socialbizguy/mcp-hubspot.git@main#egg=mcp-server-hubspot" \
- && printf '#!/usr/bin/env python3
-import mcp_server_hubspot; mcp_server_hubspot.run_main()
-' > /usr/local/bin/mcp-server-hubspot \
- && chmod +x /usr/local/bin/mcp-server-hubspot
+      "git+https://github.com/socialbizguy/mcp-hubspot.git@main#egg=mcp-server-hubspot" && \
+    printf '#!/usr/bin/env python3\nimport mcp_server_hubspot; mcp_server_hubspot.run_main()\n' > /usr/local/bin/mcp-server-hubspot && \
+    chmod +x /usr/local/bin/mcp-server-hubspot
 
-# 3. Create non-root user and switch
+# Create non-root user and switch
 RUN useradd --create-home --shell /bin/bash appuser
 USER appuser
 
-# Copy application code (if needed at runtime)
+# Copy application code if needed at runtime
 COPY --chown=appuser:appuser . /app
 
 ENV PYTHONUNBUFFERED=1
