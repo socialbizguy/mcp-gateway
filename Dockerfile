@@ -43,7 +43,7 @@ COPY --from=uv /usr/local/ /usr/local/
 # ── Ensure latest pip & friends, then install HubSpot MCP from GitHub
 RUN python -m pip install --upgrade pip setuptools wheel \
  && pip install --no-cache-dir \
-    "git+https://github.com/socialbizguy/mcp-hubspot.git@main#egg=mcp-hubspot"
+    "git+https://github.com/socialbizguy/mcp-hubspot.git@main"
 
 # ── Non‑root user
 RUN useradd --create-home --shell /bin/bash appuser
