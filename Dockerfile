@@ -40,9 +40,9 @@ RUN python -m pip install --upgrade pip setuptools wheel
 
 # ✅ Install pinned dependencies to avoid breaking changes
 RUN pip install --no-cache-dir \
-      "tokenizers==0.15.2" \
-      "transformers==4.39.3" \
-      "sentencepiece==0.2.0" \
+      "tokenizers==0.13.3" \
+      "transformers==4.29.2" \
+      "sentencepiece==0.1.99" \
       "sentence-transformers==2.2.2" \
       "huggingface_hub==0.14.1"
 
