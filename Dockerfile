@@ -63,7 +63,7 @@ USER appuser
 COPY --from=uv /usr/local/bin/ /usr/local/bin/
 COPY --from=uv /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/
 
-RUN pip install --no-cache-dir hubspot-mcp
+RUN pip install --no-cache-dir "hubspot-mcp~=0.1.0"
 
 # Copy the application code
 COPY --chown=appuser:appuser . /app
