@@ -29,8 +29,17 @@ WORKDIR /app
 
 # Install OS build tools for any future binary dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git build-essential gcc \
-    && rm -rf /var/lib/apt/lists/*
+    build-essential \
+    cmake \
+    pkg-config \
+    git \
+    curl \
+    ca-certificates \
+    python3-dev \
+    libprotobuf-dev \
+    protobuf-compiler \
+    rustc \
+ && rm -rf /var/lib/apt/lists/*
 
 # Copy everything installed in builder
 COPY --from=uv /usr/local/ /usr/local/
