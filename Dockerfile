@@ -49,14 +49,14 @@ RUN pip install --no-cache-dir --no-deps \
     printf '#!/usr/bin/env python3\nimport mcp_server_hubspot; mcp_server_hubspot.run_main()\n' > /usr/local/bin/mcp-server-hubspot && \
     chmod +x /usr/local/bin/mcp-server-hubspot
 
-# Create non-root user and switch
-RUN useradd --create-home --shell /bin/bash appuser
-USER appuser
+# Copy our entrypoint wrapper and make it executable
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Copy application code if needed at runtime
-COPY --chown=appuser:appuser . /app
+# Copy prompts (and any other code)
+COPY . /app
 
 ENV PYTHONUNBUFFERED=1
 
-# Entrypoint for the gateway
-ENTRYPOINT ["mcp-gateway"]
+# Use the shell wrapper to wire MCP → gateway via STDIO
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
