@@ -35,14 +35,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy everything installed in builder
 COPY --from=uv /usr/local/ /usr/local/
 
-# Upgrade pip, setuptools, wheel, then install Python deps without Rust
+# Python dependencies
+# 1. Upgrade build tooling
 RUN python -m pip install --upgrade pip setuptools wheel \
  && pip install --no-cache-dir \
       "tokenizers==0.15.2" \
       "transformers==4.39.3" \
       "sentencepiece==0.2.0" \
-      "sentence-transformers==2.2.2" \
- && pip install --no-cache-dir --no-deps --no-build-isolation \
+      "sentence-transformers==2.2.2"
+
+# 2. Install HubSpot MCP with build isolation (allow hatchling) but skip runtime deps
+RUN pip install --no-cache-dir --no-deps \
       "git+https://github.com/socialbizguy/mcp-hubspot.git@main#egg=mcp-server-hubspot"
 
 # Create non-root user and switch
@@ -55,4 +58,4 @@ COPY --chown=appuser:appuser . /app
 ENV PYTHONUNBUFFERED=1
 
 # Entrypoint for the gateway
-ENTRYPOINT ["mcp-gateway"]
+ENTRYPOINT ["mcp-gateway"] ["mcp-gateway"]
