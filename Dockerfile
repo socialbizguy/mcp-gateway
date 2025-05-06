@@ -1,76 +1,54 @@
-# Use a Python image with uv pre-installed
+############################
+# ─── Builder stage ────────────────────────────────────────────────
+############################
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS uv
 
-# Define build argument for optional dependencies
-# Comma-separated list, e.g., "presidio,xetrack"
+# Optional extras for your own project
+# e.g. "cli,xetrack" – leave blank if you don’t need any
 ARG INSTALL_EXTRAS=""
-
-# Install the project into `/app`
 WORKDIR /app
-
-# Enable bytecode compilation
 ENV UV_COMPILE_BYTECODE=1
 
-# Copy from the cache instead of linking since it's a mounted volume
-# This might be needed if using volumes in certain CI/CD environments
-# ENV UV_LINK_MODE=copy
-
-# Install the project's base dependencies using pyproject.toml
-# We install dependencies first without the project code for better caching
+# --- Install base deps listed in pyproject.toml (no extras yet)
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    # Optional: Add uv.lock if you use it
-    # --mount=type=bind,source=uv.lock,target=uv.lock \
-    # Install only dependencies defined in pyproject.toml (no extras yet)
     uv sync --no-dev --no-editable --no-install-project
 
-# Then, add the rest of the project source code
+# --- Copy project source and install with extras (if any)
 COPY . /app
-
-# Install the project itself, including specified optional dependencies
-# Using pip install here as it directly supports the extras syntax.
 RUN --mount=type=cache,target=/root/.cache/uv \
     EXTRA_SPECIFIER="" && \
-    if [ -n "$INSTALL_EXTRAS" ]; then EXTRA_SPECIFIER="[${INSTALL_EXTRAS}]"; fi && \
+    [ -n "$INSTALL_EXTRAS" ] && EXTRA_SPECIFIER="[${INSTALL_EXTRAS}]" ; \
     echo "Installing project with extras: .${EXTRA_SPECIFIER}" && \
     uv pip install --system ".${EXTRA_SPECIFIER}"
 
-# --- Final runtime image ---
+############################
+# ─── Runtime stage ────────────────────────────────────────────────
+############################
 FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
-# Install Node.js and npm (which includes npx)
-# Need curl, gnupg for adding nodesource repo
+# --- OS tooling (git needed for pip VCS install, node optional)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    gnupg \
+        git curl gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
-    && apt-get install -y nodejs \
-    # Clean up apt lists to reduce image size
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Verify installations (optional)
-RUN node --version
-RUN npm --version
-RUN npx --version
+# --- Bring in everything the builder put in /usr/local
+COPY --from=uv /usr/local/ /usr/local/
 
-# Create a non-root user
+# --- Install HubSpot MCP straight from GitHub
+RUN pip install --no-cache-dir \
+    "git+https://github.com/socialbizguy/mcp-hubspot.git@main#egg=mcp-hubspot"
+
+# --- App code (non‑root user for safety)
+COPY --chown=appuser:appuser . /app
 RUN useradd --create-home --shell /bin/bash appuser
 USER appuser
 
-# Copy the virtual environment from the builder stage
-COPY --from=uv /usr/local/bin/ /usr/local/bin/
-COPY --from=uv /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/
-
-RUN pip install --no-cache-dir "hubspot-mcp~=0.1.0"
-
-# Copy the application code
-COPY --chown=appuser:appuser . /app
-
-# Make Python output unbuffered
 ENV PYTHONUNBUFFERED=1
 
-# Set the entrypoint to the mcp-gateway command
-# Arguments should be passed via `docker run`
-ENTRYPOINT ["mcp-gateway"] 
+# --- Entrypoint
+ENTRYPOINT ["mcp-gateway"]
