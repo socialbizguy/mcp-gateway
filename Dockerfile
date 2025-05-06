@@ -3,18 +3,18 @@
 ############################
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS uv
 
+# Allow optional extras (e.g., "cli,xetrack")
 ARG INSTALL_EXTRAS="cli,xetrack"
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1
 
-# Base deps
+# Install base dependencies without project code
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --no-dev --no-editable --no-install-project
 
+# Copy source and install project plus extras
 COPY . /app
-
-# Project + extras
 RUN --mount=type=cache,target=/root/.cache/uv \
     EXTRA="[${INSTALL_EXTRAS}]" && \
     echo "Installing project with extras: .${EXTRA}" && \
@@ -27,33 +27,32 @@ FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
-# ── OS tools for wheel builds (no Rust needed now)
+# Install OS build tools for any future binary dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git build-essential gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Bring in everything from the builder
+# Copy everything installed in builder
 COPY --from=uv /usr/local/ /usr/local/
 
-# ── Python deps
-# 1. upgrade build tooling
+# Upgrade pip, setuptools, wheel, then install Python deps without Rust
 RUN python -m pip install --upgrade pip setuptools wheel \
-# 2. pin wheelable tokenizers & its friends (no Rust compile)
  && pip install --no-cache-dir \
       "tokenizers==0.15.2" \
       "transformers==4.39.3" \
       "sentencepiece==0.2.0" \
       "sentence-transformers==2.2.2" \
-# 3. install HubSpot MCP itself without pulling extra deps
  && pip install --no-cache-dir --no-deps --no-build-isolation \
-      "git+https://github.com/socialbizguy/mcp-hubspot.git@main"
+      "git+https://github.com/socialbizguy/mcp-hubspot.git@main#egg=mcp-server-hubspot"
 
-# ── Non‑root user
+# Create non-root user and switch
 RUN useradd --create-home --shell /bin/bash appuser
 USER appuser
 
-# ── (Optional) copy runtime app code
+# Copy application code (if needed at runtime)
 COPY --chown=appuser:appuser . /app
 
 ENV PYTHONUNBUFFERED=1
+
+# Entrypoint for the gateway
 ENTRYPOINT ["mcp-gateway"]
