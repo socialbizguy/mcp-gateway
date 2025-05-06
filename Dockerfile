@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 ############################
 # ─── Runtime stage ────────────────────────────────────────────────
 ############################
-FROM python:3.12-slim-bookworm
+FROM python:3.10-slim-bookworm
 
 WORKDIR /app
 
