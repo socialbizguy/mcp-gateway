@@ -35,15 +35,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy everything installed in builder
 COPY --from=uv /usr/local/ /usr/local/
 
-# Python dependencies
-RUN python -m pip install --upgrade pip setuptools wheel \
- && pip install --no-cache-dir \
+# Upgrade base pip tools
+RUN python -m pip install --upgrade pip setuptools wheel
+
+# ✅ Install pinned dependencies to avoid breaking changes
+RUN pip install --no-cache-dir \
       "tokenizers==0.15.2" \
       "transformers==4.39.3" \
       "sentencepiece==0.2.0" \
-      "sentence-transformers==2.2.2"
+      "sentence-transformers==2.2.2" \
+      "huggingface_hub==0.14.1"
 
-# Install HubSpot MCP and create a shim for stdio plugin
+# ✅ Install MCP without extra deps, create CLI shim
 RUN pip install --no-cache-dir --no-deps \
       "git+https://github.com/socialbizguy/mcp-hubspot.git@main#egg=mcp-server-hubspot" && \
     printf '#!/usr/bin/env python3\nimport mcp_server_hubspot; mcp_server_hubspot.run_main()\n' > /usr/local/bin/mcp-server-hubspot && \
@@ -58,5 +61,5 @@ COPY . /app
 
 ENV PYTHONUNBUFFERED=1
 
-# Use the shell wrapper to wire MCP → gateway via STDIO
+# Entrypoint wraps STDIO plugin logic
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
