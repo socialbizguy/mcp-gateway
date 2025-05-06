@@ -27,32 +27,32 @@ FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
-# ── OS tools: git + build‑essentials for PEP‑517 wheel builds
+# ── OS tools for wheel builds (no Rust needed now)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git build-essential gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# ── NodeJS (uncomment if you genuinely need it)
-# RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
-#     && apt-get install -y --no-install-recommends nodejs \
-#     && rm -rf /var/lib/apt/lists/*
-
-# ── Copy everything the builder installed
+# ── Bring in everything from the builder
 COPY --from=uv /usr/local/ /usr/local/
 
-# ── Ensure latest pip & friends, then install HubSpot MCP from GitHub
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        git build-essential gcc cargo rustc \
-    && rm -rf /var/lib/apt/lists/*
+# ── Python deps
+# 1. upgrade build tooling
 RUN python -m pip install --upgrade pip setuptools wheel \
+# 2. pin wheelable tokenizers & its friends (no Rust compile)
  && pip install --no-cache-dir \
-    "git+https://github.com/socialbizguy/mcp-hubspot.git@main"
+      "tokenizers==0.15.2" \
+      "transformers==4.39.3" \
+      "sentencepiece==0.2.0" \
+      "sentence-transformers==2.2.2" \
+# 3. install HubSpot MCP itself without pulling extra deps
+ && pip install --no-cache-dir --no-deps --no-build-isolation \
+      "git+https://github.com/socialbizguy/mcp-hubspot.git@main"
 
 # ── Non‑root user
 RUN useradd --create-home --shell /bin/bash appuser
 USER appuser
 
-# ── App code (if runtime needs it; omit for pure library image)
+# ── (Optional) copy runtime app code
 COPY --chown=appuser:appuser . /app
 
 ENV PYTHONUNBUFFERED=1
