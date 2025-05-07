@@ -1,22 +1,14 @@
 # Use a Python image with uv pre-installed
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS uv
 
+# Define build argument for optional dependencies
 ARG INSTALL_EXTRAS=""
-RUN --mount=type=cache,target=/root/.cache/uv \
-    bash -c 'EXTRA_SPECIFIER=""; \
-    if [ -n "$INSTALL_EXTRAS" ]; then EXTRA_SPECIFIER="[${INSTALL_EXTRAS}]"; fi; \
-    echo "Installing project with extras: .${EXTRA_SPECIFIER}"; \
-    uv pip install --system ".${EXTRA_SPECIFIER}"'
 
 # Install the project into `/app`
 WORKDIR /app
 
 # Enable bytecode compilation
 ENV UV_COMPILE_BYTECODE=1
-
-# Copy from the cache instead of linking since it's a mounted volume
-# This might be needed if using volumes in certain CI/CD environments
-# ENV UV_LINK_MODE=copy
 
 # Copy everything at once so `src/` and README.md are present
 COPY . /app
@@ -26,12 +18,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev --no-editable --no-install-project
 
 # Install the project itself, including specified optional dependencies
-# Using pip install here as it directly supports the extras syntax.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    EXTRA_SPECIFIER="" && \
-    if [ -n "$INSTALL_EXTRAS" ]; then EXTRA_SPECIFIER="[${INSTALL_EXTRAS}]"; fi && \
-    echo "Installing project with extras: .${EXTRA_SPECIFIER}" && \
-    uv pip install --system ".${EXTRA_SPECIFIER}"
+    bash -c 'EXTRA_SPECIFIER=""; \
+    if [ -n "$INSTALL_EXTRAS" ]; then EXTRA_SPECIFIER="[${INSTALL_EXTRAS}]"; fi; \
+    echo "Installing project with extras: .${EXTRA_SPECIFIER}"; \
+    uv pip install --system ".${EXTRA_SPECIFIER}"'
+
 
 # --- Final runtime image ---
 FROM python:3.12-slim-bookworm
@@ -39,34 +31,27 @@ FROM python:3.12-slim-bookworm
 WORKDIR /app
 
 # Install Node.js and npm (which includes npx)
-# Need curl, gnupg for adding nodesource repo
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
     && apt-get install -y nodejs \
-    # Clean up apt lists to reduce image size
     && rm -rf /var/lib/apt/lists/*
 
-# Verify installations (optional)
-RUN node --version
-RUN npm --version
-RUN npx --version
+# Optional: verify installations
+RUN node --version && npm --version && npx --version
 
-# Create a non-root user
+# Create non-root user
 RUN useradd --create-home --shell /bin/bash appuser
 USER appuser
 
-# Copy the virtual environment from the builder stage
+# Copy dependencies and installed packages from build stage
 COPY --from=uv /usr/local/bin/ /usr/local/bin/
 COPY --from=uv /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/
-
-# Copy the application code
 COPY --from=uv /app /app
 
 # Make Python output unbuffered
 ENV PYTHONUNBUFFERED=1
 
-# Set the entrypoint to the mcp-gateway command
-# Arguments should be passed via `docker run`
-ENTRYPOINT ["mcp-gateway"] 
+# Start the gateway
+ENTRYPOINT ["mcp-gateway"]
