@@ -1,11 +1,6 @@
-[project]
-name = "mcp-gateway"
-version = "1.0.0"
-description = "A gateway for MCP servers"
-readme = "README.md"
-requires-python = ">=3.10"
-dependencies = [
-    "mcp[cli]>=1.6.0"
+[project.optional-dependencies]
+hubspot = [
+    "mcp-hubspot @ file:///app/tools/mcp-hubspot"
 ]
 
 [project.optional-dependencies]
