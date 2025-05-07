@@ -28,6 +28,9 @@ WORKDIR /app
 # Copy everything so uv has access to pyproject.toml, src/, README.md, tools/, etc.
 COPY . /app
 
+# allow invalid reference casting in tokenizers
+ENV RUSTFLAGS="-A invalid_reference_casting"
+
 # Sync only the dependencies (no editable install)
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev --no-editable --no-install-project
