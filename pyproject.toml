@@ -1,20 +1,15 @@
 [project.optional-dependencies]
-hubspot = [
-    "mcp-hubspot @ file:///app/tools/mcp-hubspot"
-]
-
-[project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
-    "pytest-cov>=4.1.0",
+    "pytest-cov>=4.1.0"
 ]
 presidio = [
     "presidio-anonymizer>=2.2.0",
-    "presidio-analyzer>=2.2.0",
+    "presidio-analyzer>=2.2.0"
 ]
 xetrack = [
-    "xetrack>=0.3.4",
+    "xetrack>=0.3.4"
 ]
 hubspot = [
     "mcp-hubspot @ file://./tools/mcp-hubspot"
@@ -24,7 +19,7 @@ hubspot = [
 mcp-gateway = "mcp_gateway.server:main"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
