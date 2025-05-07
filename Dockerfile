@@ -19,6 +19,8 @@ RUN apt-get update && apt-get install -y \
     cmake \
     pkg-config \
  && curl https://sh.rustup.rs -sSf | bash -s -- -y
+ && echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> /root/.bashrc \
+ && export PATH="$HOME/.cargo/bin:$PATH"
 
 # Copy everything at once so `src/` and README.md are present
 COPY . /app
