@@ -10,6 +10,11 @@ WORKDIR /app
 # Enable bytecode compilation
 ENV UV_COMPILE_BYTECODE=1
 
+# ✅ Install Rust + build essentials BEFORE dependency resolution
+RUN apt-get update && apt-get install -y curl build-essential python3-dev git \
+ && curl https://sh.rustup.rs -sSf | bash -s -- -y \
+ && export PATH="/root/.cargo/bin:$PATH"
+
 # Copy everything at once so `src/` and README.md are present
 COPY . /app
 
