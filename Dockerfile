@@ -15,17 +15,12 @@ ENV UV_COMPILE_BYTECODE=1
 # This might be needed if using volumes in certain CI/CD environments
 # ENV UV_LINK_MODE=copy
 
-# Install the project's base dependencies using pyproject.toml
-# We install dependencies first without the project code for better caching
-RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    # Optional: Add uv.lock if you use it
-    # --mount=type=bind,source=uv.lock,target=uv.lock \
-    # Install only dependencies defined in pyproject.toml (no extras yet)
-    uv sync --no-dev --no-editable --no-install-project
-
-# Then, add the rest of the project source code
+# Copy everything at once so `src/` and README.md are present
 COPY . /app
+
+# Install dependencies using uv
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-dev --no-editable --no-install-project
 
 # Install the project itself, including specified optional dependencies
 # Using pip install here as it directly supports the extras syntax.
