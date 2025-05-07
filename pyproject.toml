@@ -22,6 +22,9 @@ presidio = [
 xetrack = [
     "xetrack>=0.3.4",
 ]
+hubspot = [
+    "mcp-hubspot @ file://./tools/mcp-hubspot"
+]
 
 [project.scripts]
 mcp-gateway = "mcp_gateway.server:main"
