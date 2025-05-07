@@ -44,7 +44,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
       fi; \
       echo "Installing project with extras: .${EXTRA_SPECIFIER}"; \
       uv pip install --system ".${EXTRA_SPECIFIER}" \
-    '
+      pip install hubspot-api-client'
 
 # --- Final runtime image ---
 FROM python:3.12-slim-bookworm
