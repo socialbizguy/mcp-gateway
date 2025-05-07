@@ -64,4 +64,9 @@ COPY --from=builder /app /app
 
 ENV PYTHONUNBUFFERED=1
 
-ENTRYPOINT ["mcp-gateway"]
+# copy in our launcher
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# use it as the image entrypoint
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
