@@ -1,14 +1,11 @@
 [project]
-name = "mcp-hubspot"
-version = "0.1.0"
-description = "MCP HubSpot tool"
+name = "mcp-gateway"
+version = "1.0.0"
+description = "A gateway for MCP servers"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "transformers==4.29.2",
-    "sentencepiece==0.1.99",
-    "sentence-transformers==2.2.2",
-    "huggingface_hub==0.14.1"
+    "mcp[cli]>=1.6.0"
 ]
 
 [project.optional-dependencies]
@@ -24,11 +21,20 @@ presidio = [
 xetrack = [
     "xetrack>=0.3.4",
 ]
+hubspot = [
+    "mcp-hubspot @ file://./tools/mcp-hubspot"
+]
+
+[project.scripts]
+mcp-gateway = "mcp_gateway.server:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["mcp_server_hubspot*"]
-exclude = ["tests*", "docs*", "examples*"]
+include = ["mcp_gateway*"]
+exclude = ["data*", "front*", "tests*"]
+
+[tool.setuptools.package-data]
+"*" = ["docs/*.png"]
