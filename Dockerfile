@@ -1,9 +1,12 @@
 # Use a Python image with uv pre-installed
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS uv
 
-# Define build argument for optional dependencies
-# Comma-separated list, e.g., "presidio,xetrack"
 ARG INSTALL_EXTRAS=""
+RUN --mount=type=cache,target=/root/.cache/uv \
+    bash -c 'EXTRA_SPECIFIER=""; \
+    if [ -n "$INSTALL_EXTRAS" ]; then EXTRA_SPECIFIER="[${INSTALL_EXTRAS}]"; fi; \
+    echo "Installing project with extras: .${EXTRA_SPECIFIER}"; \
+    uv pip install --system ".${EXTRA_SPECIFIER}"'
 
 # Install the project into `/app`
 WORKDIR /app
@@ -59,7 +62,7 @@ COPY --from=uv /usr/local/bin/ /usr/local/bin/
 COPY --from=uv /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/
 
 # Copy the application code
-COPY --chown=appuser:appuser . /app
+COPY --from=uv /app /app
 
 # Make Python output unbuffered
 ENV PYTHONUNBUFFERED=1
