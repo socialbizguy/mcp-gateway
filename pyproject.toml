@@ -22,7 +22,7 @@ xetrack = [
     "xetrack>=0.3.4"
 ]
 hubspot = [
-    "mcp-hubspot @ file://./tools/mcp-hubspot"
+    "mcp-hubspot @ file:///app/tools/mcp-hubspot"
 ]
 
 [project.scripts]
