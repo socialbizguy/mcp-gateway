@@ -1,18 +1,18 @@
 # --------------------------------------
-# Builder stage: install dependencies + Rust
+# Builder stage: install dependencies + Rust toolchain
 # --------------------------------------
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS uv
 
 # Allow passing extras (cli, xetrack, hubspot)
 ARG INSTALL_EXTRAS=""
 
-# Put code under /app
+# Work in /app
 WORKDIR /app
 
-# Speed up by pre-compiling __pycache__
+# Speed up by compiling bytecode
 ENV UV_COMPILE_BYTECODE=1
 
-# Install build tools, Rust compiler & cargo, cmake, pkg-config, plus rustup fallback
+# Install build tools, Rust (rustc + cargo), cmake, pkg-config, OpenSSL dev headers
 RUN apt-get update && apt-get install -y \
       curl \
       build-essential \
@@ -21,19 +21,20 @@ RUN apt-get update && apt-get install -y \
       cmake \
       pkg-config \
       rustc \
-      cargo && \
-    curl https://sh.rustup.rs -sSf | bash -s -- -y && \
-    # make sure rustup bins are on PATH for this session
-    ln -s /root/.cargo/bin/* /usr/local/bin/ || true
+      cargo \
+      libssl-dev \
+    && curl https://sh.rustup.rs -sSf | bash -s -- -y \
+    && ln -sf /root/.cargo/bin/* /usr/local/bin/ \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy your gateway code (including src/, pyproject.toml, tools/)
+# Copy everything (so src/, pyproject.toml, tools/, README.md are present)
 COPY . /app
 
-# Resolve & install base deps with uv (no extras yet)
+# Install base dependencies via uv (no extras yet)
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev --no-editable --no-install-project
 
-# Finally install mcp-gateway itself along with any extras
+# Install the project itself, including any extras (cli, xetrack, hubspot)
 RUN --mount=type=cache,target=/root/.cache/uv \
     bash -c 'EXTRA_SPECIFIER=""; \
       if [ -n "$INSTALL_EXTRAS" ]; then EXTRA_SPECIFIER="[${INSTALL_EXTRAS}]"; fi; \
@@ -42,13 +43,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 
 # --------------------------------------
-# Final runtime image: lean + Node.js
+# Final runtime image: lean + Node.js for JS tooling
 # --------------------------------------
 FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
-# Install Node.js & npx for any JS tooling (e.g. n8n UI)
+# Install Node.js & npx (for any JS-based tooling)
 RUN apt-get update && apt-get install -y --no-install-recommends \
       curl \
       gnupg \
@@ -56,22 +57,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Optionally verify versions
+# Verify versions (optional)
 RUN node --version && npm --version && npx --version
 
 # Create a non-root user
 RUN useradd --create-home --shell /bin/bash appuser
 USER appuser
 
-# Bring over Python binaries & deps from builder
+# Bring in Python binaries and site-packages from build stage
 COPY --from=uv /usr/local/bin/ /usr/local/bin/
 COPY --from=uv /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/
 
-# Copy the app itself
+# Copy your app
 COPY --from=uv /app /app
 
-# Make Python unbuffered for logs
+# Make Python stdout/stderr unbuffered for logs
 ENV PYTHONUNBUFFERED=1
 
-# Launch the gateway
+# Entrypoint always runs mcp-gateway
 ENTRYPOINT ["mcp-gateway"]
